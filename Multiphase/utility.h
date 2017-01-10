@@ -178,6 +178,17 @@ struct matrix3x3
 	float x00, x01, x02;
 	float x10, x11, x12;
 	float x20, x21, x22;
+
+
+
 };
 
+float determinant(matrix3x3 m);
+matrix3x3 inverse(matrix3x3 m);
+matrix3x3 mat3Multmat3(matrix3x3 a, matrix3x3 b);
+float3 mat3Multfloat3(matrix3x3 a, float3 b);
+matrix3x3 polarDecompositionStable(matrix3x3 mat, float eps);
+float3 matRow(matrix3x3 m, int i);
+float3 matCol(matrix3x3 m, int i);
+matrix3x3 polarDecomposition(matrix3x3 mat, matrix3x3 R, matrix3x3 U, matrix3x3 D);
 #endif

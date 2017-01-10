@@ -49,7 +49,7 @@ void cspray::initparam()
 	m_bExtendHeatToBoundary = false;
 	m_bCorrectPosition = true;
 	mRecordImage = false;
-	SolidbounceParam = 05.5f;	//固体碰到边界时反弹的参数
+	SolidbounceParam = 04.5f;	//固体碰到边界时反弹的参数
 	SolidBuoyanceParam = 0;	//0.05f; 浮力参数，但效果不好，考虑要不要计算流体的高度。
 	defaultSolidT = 263.15f, defaultLiquidT = 293.15f, LiquidHeatTh = 10;
 	posrandparam = 0.1f, velrandparam = 0.0f;
@@ -62,6 +62,7 @@ void cspray::initparam()
 	m_bSmoothMC = true;
 	bRunMCSolid = true;
 	m_DistanceFuncMC = 0;		//1表示使用2005年sand那篇论文的方法，0表示用高阳写的函数
+	stiffness = 0.1;  //   gy stiffness!
 	frameMax = 1500;
 	m_bLiquidAndGas = false;
 	m_bGas = true;				//false GY new； true YLP
@@ -215,7 +216,7 @@ void cspray::initparam()
 	else if (mscene == SCENE_MELTING)
 	{
 		bCouplingSphere = false;
-		m_bMelt = true;
+		m_bMelt = false;
 		m_bSolid = true;
 		m_bAddHeatBottom = false;
 		if (NX != 64 || NY != 64 || NZ != 64)
@@ -942,11 +943,11 @@ void cspray::SPHsimulate_SLCouple()
 		printTime(m_btimer, "addexternalforce", time);
 
 		//4. solid simulation step.
+	
 		if (m_bFixSolid)
 			solidmotion_fixed();
 		else
 			solidmotion();
-
 		//liquid update by SPH framework
 		liquidUpdate_SPH();
 
@@ -1110,10 +1111,15 @@ void cspray::bubblesim()////////////////////////////mainbody
 		printTime(m_btimer, "mapvelg2p_bubble", time2);
 
 		//4. solid simulation step.
+		m_bsoftbody = 1;
+		reserve_X0();
 		if (m_bFixSolid)
 			solidmotion_fixed();
-		else
-			solidmotion();
+	//	else
+		//	solidmotion();
+		if (m_bsoftbody)
+			soft_solidmotion();
+	
 		printTime(m_btimer, "solidmotion", time2);
 
 		//4. SPH framework for solo air particle

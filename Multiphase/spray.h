@@ -323,6 +323,7 @@ public:
 	//流固耦合的接口，以后尽量加到这一块
 	void waterSolidSim();
 	void solidmotion();		///////////////////////////////////////////////	计算刚体运动6692963GY
+	void soft_solidmotion();
 	void solidmotion_fixed();
 	void initSolidBuffers();//////////////////////////////////////////////////////////////////GY
 	void rendersphereshader();
@@ -332,12 +333,20 @@ public:
 	void mat4_mul(matrix4* dst, const matrix4* m0, const matrix4* m1);
 	void mat4_mulvec3_as_mat3(float3* dst, const matrix4* m, const float3* v);
 	float3 accumulate_GPU_f3(float3 *data);
+	float3 accumulate_GPU_f3(float3 *data1,float3 *data2);
+	float3 accumulate_GPU_f3(float3 *data1, float *data2);
+	float accumulate_GPU_f(float *data);
 	float3 accumulate_CPU_f3_test(float3 *data);
+	void reserve_X0();
+	matrix3x3 transpose(matrix3x3 m);
 	void CollisionSolid();
 	void genAirFromSolid();
-
+	float stiffness;
+	bool m_bAllowStretch;
+	
 	float3 m_bubblepos;
 	float m_bubbleradius;
+
 
 	//for solid particle
 	//	float3 *initialSolPos;
@@ -345,6 +354,7 @@ public:
 	bool m_bMelt;	//是否要熔化固体
 	bool m_bFreeze;
 	bool m_bFixSolid;	//标记是否要把固体固定不动，即不再更新其位置与速度。
+	bool m_bsoftbody;
 	bool m_bGenGas;	//是否产生气泡
 	bool m_bHeatTrans;	//是否模拟温度的传递
 	bool m_bAddHeatBottom;		//是否在底部增加热
@@ -365,11 +375,15 @@ public:
 	float3* I;
 	float3* solidParPos;
 	float3* solidParVelFLIP;
+	float* solidParMass;
+	float* invMasses;
+	float* softMasses;
 	farray phisolid, solidux, soliduy, soliduz;		//to deal with collision.
 	float SolidbounceParam, SolidBuoyanceParam;		//固体碰到边界时反弹的参数，浮力参数
 	int NXMC, NYMC, NZMC;
 	int maxsolidvert, maxsolidtri;
 	float bubbleMaxVel;
+
 
 	float3 centertmp;
 	bool mRecordImage;
@@ -385,6 +399,9 @@ public:
 	char *hparflag;
 	float *hparLHeat;
 	uint *hgridstart, *hgridend;
+
+	const float eps = 1e-6;
+	
 
 };
 

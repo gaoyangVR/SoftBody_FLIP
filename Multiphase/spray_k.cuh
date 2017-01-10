@@ -111,6 +111,8 @@ __global__ void collidesphere(float3 spherepos, float sphereradius, float3* ppos
 __global__ void markSolid_waterfall(int3 minpos, int3 maxpos, charray mark);
 __global__ void markSolid_waterfall_liquid(int3 minpos, int3 maxpos, charray mark);
 __global__ void markSolid_terrain(charray mark, charray mark_terrain);
+__global__ void set_softparticle_position(float3* solidParPos, float3* mParPos, float3* solidParVel, float3* mParVel, char* partype);
+
 
 __global__ void createAABB_q(float3* points, int nPoints, uint3* faces, int nFaces, float *maxLength, float3* hashPoints);
 __global__	void calcHash_radix_q(
@@ -199,6 +201,9 @@ __global__ void initheat_grid_k(farray tp, charray mark);
 
 //for GY: solid coupling
 __global__ void accumulate_GPU_k(int num, float3* out, float3* a);
+__global__ void accumulate_GPU_k(int num, float3* out, float3* a,float3* b);
+__global__ void accumulate_GPU_k(int num, float3* out, float3* a, float* b);
+__global__ void accumulate_GPU_k_float(int num, float *sum, float* a);
 __global__ void compute_cI_k(int pnum, char* parflag, float3 *parPos, float3 *parVel, float3* c, float3* i, float3 rg);
 __global__ void computeVelSolid_k(float3* parPos, char* parflag, float3* parVel, int pnum, float3 rg, float3 R, float3 T);
 __global__ void setVelZeroSolid_k(float3 *parvel, char *parflag, int pnum);

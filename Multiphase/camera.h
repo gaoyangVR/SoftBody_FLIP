@@ -33,6 +33,7 @@ inline mvec3 cross(mvec3 a, mvec3 b)
 {
 	return mvec3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x);
 }
+
 inline mvec3 normalize(mvec3 a)
 {
 	return a / a.length();

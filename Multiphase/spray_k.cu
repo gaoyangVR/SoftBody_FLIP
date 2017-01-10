@@ -1639,7 +1639,7 @@ __global__ void genWaterDensfield_liquidAndGas(farray outdens, float3 *pos, char
 		float h = dparam.cellsize.x / (NXMC / NX);
 		//todo: this is not quite right, r should be 0.5*samplespace, i.e. 0.25f/gn.
 		//float r = 2.5f*sqrt(3.)*1.01*0.5*h;		//mantaFlow flip03_gen 
-		float r = 0.5*h;
+		float r = 0.36*h;
 		//get position
 		int i, j, k;
 		getijk(i, j, k, idx, NXMC + 1, NYMC + 1, NZMC + 1);
@@ -5185,6 +5185,71 @@ __global__ void accumulate_GPU_k(int num, float3* out, float3* a)//dsum, a.data,
 		out[blockIdx.x] = ddata[0];
 }
 
+__global__ void accumulate_GPU_k(int num, float3* out, float3* a, float* b)//dsum, a.data, flag, n
+{
+	extern __shared__ float3 ddata[];
+
+	uint tid = threadIdx.x;
+	uint i = __mul24(blockDim.x, blockIdx.x) + threadIdx.x;
+
+	ddata[tid] = (i >= num) ? make_float3(0, 0, 0) : a[i]*b[i];	//赋值给solidparticles
+	__syncthreads();
+
+	for (int s = blockDim.x / 2; s > 0; s >>= 1)
+	{
+		if (tid < s)
+			ddata[tid] += ddata[tid + s];
+		__syncthreads();
+	}
+
+	if (tid == 0)
+		out[blockIdx.x] = ddata[0];
+}
+
+__global__ void accumulate_GPU_k(int num, float3* out, float3* a, float3* b)
+{
+	extern __shared__ float3 ddata[];
+
+	uint tid = threadIdx.x;
+	uint i = __mul24(blockDim.x, blockIdx.x) + threadIdx.x;
+
+	ddata[tid] = (i >= num) ? make_float3(0, 0, 0) : a[i]*b[i];	//赋值给solidparticles
+	__syncthreads();
+
+	for (int s = blockDim.x / 2; s > 0; s >>= 1)
+	{
+		if (tid < s)
+			ddata[tid] += ddata[tid + s];
+		__syncthreads();
+	}
+
+	if (tid == 0)
+		out[blockIdx.x] = ddata[0];
+}
+
+__global__ void accumulate_GPU_k_float(int num, float* out, float* a)//dsum, a.data, flag, n
+{
+	extern __shared__ float fddata[];
+
+	uint tid = threadIdx.x;
+	uint i = __mul24(blockDim.x, blockIdx.x) + threadIdx.x;
+
+	fddata[tid] = (i >= num) ? 0 : a[i];	//赋值给solidparticles
+	__syncthreads();
+
+	for (int s = blockDim.x / 2; s > 0; s >>= 1)
+	{
+		if (tid < s)
+			fddata[tid] += fddata[tid + s];
+		__syncthreads();
+	}
+
+	if (tid == 0)
+		out[blockIdx.x] = fddata[0];
+}
+
+
+
 __global__ void compute_cI_k(int pnum, char* parflag, float3 *parPos, float3 *parVel, float3* c, float3* weight, float3 rg)
 {
 	int idx = __mul24(blockDim.x, blockIdx.x) + threadIdx.x;
@@ -5272,6 +5337,7 @@ __global__ void set_nonsolid_2_zero(char* pflag, int pnum, float3* Pos, float3* 
 	{
 		Pos[idx] = make_float3(0, 0, 0);
 		Vel[idx] = make_float3(0, 0, 0);
+		//Mass[idx] = 0.;
 	}
 }
 
@@ -5488,7 +5554,7 @@ __global__ void solidCollisionWithBound(float3 *ppos, float3 *pvel, char *pflag,
 		float3 tmax = dparam.gmax - (dparam.cellsize + make_float3(0.3f*dparam.samplespace));
 		float3 ipos = ppos[idx];
 		float3 ivel = pvel[idx];
-
+		SolidbounceParam = 0.0001;	//刚度系数越大 这个值要越小，因为这个值起到的作用和刚性系数类似
 		//float eps=1e-6;
 		// 反向的速度与“穿透深度，系数，粒子个数”相关。
 		//（与粒子个数相关主要是因为这个速度是起到“惩罚力”的作用，而粒子个数起到“质量”的作用，在粒子的速度向刚体转换的时候，相当于一个“平均(除质量)”的过程）
@@ -5623,3 +5689,15 @@ __global__ void initheat_grid_k(farray tp, charray mark)
 			tp[idx] = 80, mark[idx] = TYPEAIR;
 	}
 }
+__global__ void set_softparticle_position(float3* solidParPos, float3* mParPos, float3* solidParVelFLIP,float3* mParVel, char* partype)
+{
+	int idx = __mul24(blockIdx.x, blockDim.x) + threadIdx.x;
+	if (idx < dparam.gnum)
+	if (partype[idx]==TYPESOLID)
+	{
+		mParPos[idx] = solidParPos[idx];
+		mParVel[idx] = (solidParVelFLIP[idx]+mParVel[idx])/2.0;
+	//	mParVel[idx] = solidParVelFLIP[idx];
+		
+	}
+};

@@ -1,8 +1,12 @@
 #include <Windows.h>
+//#include"Eigen\src\plugins\BlockMethods.h"
+//#include "common.h"
+
 #include<cuda.h>
 #include<helper_cuda.h>
 #include"helper_math.h"
 #include<helper_functions.h>
+#include <cublas.h>
 #include "glew.h"
 #include<cuda_gl_interop.h>
 #include "spray.h"
@@ -11,8 +15,14 @@
 #include <cuda_runtime.h>
 # include < curand.h >
 #include "radixsort.cuh"
+#include "mathmatrix.h"
+#include<cublas.h>
+
+//#include"common.h" //PositionBasedDynamics 的库
 #define ZLIB_WINAPI
 #include "zlib/zlib.h"  //zlib 库的配置 http://www.tuicool.com/articles/fuQbeez   + 使用 http://www.tuicool.com/articles/fuQbeez
+
+//using namespace glm;
 
 extern void printTime(bool btime, char* info, CTimer &time);
 
@@ -2752,7 +2762,7 @@ void cspray::solidmotion()			///////////////////////////////
 		//R=make_float3( 0,0,1 );
 		float3 axis = R;		//角速度决定的旋转轴
 		float theta = -length(R)*hparam.dt;		//角速度决定的旋转角度大小
-		if (abs(theta)>1e-6)		//注意：轴长为0时是不能normalize的，会有除0的错误
+		if (abs(theta) > 1e-6)		//注意：轴长为0时是不能normalize的，会有除0的错误
 			axis = normalize(axis);
 		else
 			axis = make_float3(1, 0, 0), theta = 0;
@@ -2770,11 +2780,221 @@ void cspray::solidmotion()			///////////////////////////////
 		cudaThreadSynchronize();
 
 		int blocknum = (int)ceil(((float)solidvertexnum) / threadnum);
-		if ((mscene == SCENE_INTERACTION || mscene == SCENE_INTERACTION_HIGHRES || mscene == SCENE_MELTANDBOIL || mscene == SCENE_MELTANDBOIL_HIGHRES /*|| mscene==SCENE_ALL*/)&& mframe>0 && !bRunMCSolid)
+		if ((mscene == SCENE_INTERACTION || mscene == SCENE_INTERACTION_HIGHRES || mscene == SCENE_MELTANDBOIL || mscene == SCENE_MELTANDBOIL_HIGHRES /*|| mscene==SCENE_ALL*/) && mframe > 0 && !bRunMCSolid)
 			computeSolidVertex_k << <blocknum, threadnum >> >(solidvertex, solidvertexnum, rg, rg0, rm);
 	}
 }
 
+void cspray::soft_solidmotion()			///////////////////////////////
+{
+	//若没有固体粒子则直接返回
+	if (nRealSolpoint <= 0)
+		return;
+
+	float* m0 = new float[parNumNow];//粒子位置
+	float3* x0 = new float3[parNumNow]; 
+ 	float3* x = new float3[parNumNow];
+	float3* newparvel = new float3[parNumNow];
+	char* hparflag = new char[parNumNow];	//1. prepare
+	
+
+
+
+	// 	0. 处理刚体碰到墙的情况
+  	solidCollisionWithBound << <pblocknum, threadnum >> > (solidParPos, solidParVelFLIP, parflag, parNumNow, SolidbounceParam, nRealSolpoint);
+  	cudaThreadSynchronize();
+
+//////////////////////////////
+
+	///////////////////////////////////////
+	
+	cudaMemcpy(x0, solidParPos, sizeof(float3)*parNumNow, cudaMemcpyDeviceToHost);
+	
+	cudaMemcpy(hparflag, parflag, sizeof(char)*parNumNow, cudaMemcpyDeviceToHost);
+
+//	cudaMemcpy(x, solidParPos, sizeof(float3)*parNumNow, cudaMemcpyDeviceToHost);	//x1 新位置
+	cudaMemcpy(newparvel, solidParVelFLIP, sizeof(float3)*parNumNow, cudaMemcpyDeviceToHost);
+	float3 restCM = make_float3(0.);
+
+	/*		float3* x0 = new float3[8];
+		float3* x = new float3[8];
+	x0[0].x = 0.;  x0[0].y = 0.; x0[0].z = 0.0;
+	x0[1].x = 0.3; x0[1].y = 0.; x0[1].z = 0.0;
+	x0[2].x = 0.3; x0[2].y = 0.3; x0[2].z = 0.0;
+	x0[3].x = 0.; x0[3].y = 0.3; x0[3].z = 0.0;
+
+	x0[4].x = 0.; x0[4].y = 0.; x0[4].z = 0.3;
+	x0[5].x = 0.3; x0[5].y = 0.; x0[5].z = 0.3;
+	x0[6].x = 0.3; x0[6].y = 0.3; x0[6].z = 0.3;
+	x0[7].x = 0.; x0[7].y = 0.3; x0[7].z = 0.3;
+
+	x[0].x = 0.;  x[0].y = 0.; x[0].z = 0.0;
+	x[1].x = 0.4; x[1].y = 0.; x[1].z = 0.0;
+	x[2].x = 0.4; x[2].y = 0.4; x[2].z = 0.0;
+	x[3].x = 0.; x[3].y = 0.4; x[3].z = 0.0;
+
+	x[4].x = 0.; x[4].y = 0.; x[4].z = 0.4;
+	x[5].x = 0.4; x[5].y = 0.; x[5].z = 0.4;
+	x[6].x = 0.4; x[6].y = 0.4; x[6].z = 0.4;
+	x[7].x = 0.; x[7].y = 0.4; x[7].z = 0.4;
+	parNumNow = 8;
+	*/
+	///////////////////////////////////////
+	matrix3x3 invRestMat;
+	float wsum=0.;
+ 	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+ 	{
+		m0[i] = hparam.m0;
+		
+ 		wsum += m0[i];
+		restCM += m0[i] * x0[i];
+ 	}
+//	wsum = accumulate_GPU_f(solidParMass);
+//	restCM = accumulate_GPU_f3(solidParPos,solidParMass);
+	if (wsum == 0.)
+	{
+		printf("wsum is equal to 0,ERROR!\n");
+		getchar();
+	}
+
+	restCM /= wsum;		//center of mass 
+
+	//A
+	matrix3x3 A;
+	A.x00 = A.x01 = A.x02 = A.x10 = A.x11 = A.x12 = A.x20 = A.x21 = A.x22 = 0.;
+
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		const float3 qi = x0[i] - restCM;
+		float wi = m0[i];
+		float x2 = wi * qi.x * qi.x;
+		float y2 = wi * qi.y * qi.y;
+		float z2 = wi * qi.z * qi.z;
+		float xy = wi * qi.x * qi.y;
+		float xz = wi * qi.x * qi.z;
+		float yz = wi * qi.y * qi.z;
+		A.x00 += x2; A.x01 += xy; A.x02 += xz;
+		A.x10 += xy; A.x11 += y2; A.x12 += yz;
+		A.x20 += xz; A.x21 += yz; A.x22 += z2;
+	}
+	//	matrix3x3 tmpmat;	tmpmat = A;	printf(" %f %f %f\n%f %f %f\n%f %f %f ", tmpmat.x00, tmpmat.x01, tmpmat.x02, tmpmat.x10, tmpmat.x11, tmpmat.x12, tmpmat.x20, tmpmat.x21, tmpmat.x22); getchar();
+	float det = determinant(A);
+
+
+	if (fabs(det) > eps)
+	{
+		invRestMat = inverse(A);
+	}
+
+	//////////////////////////////////
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		x[i] = x0[i] + hparam.dt*newparvel[i];
+		
+	}
+
+	//////////////////////////////////
+	
+	float3 *corr = new float3[parNumNow];
+	
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i] == TYPESOLID)
+	{
+		corr[i] = make_float3(0.);
+	}
+
+	//center of mass
+	float3 cm = make_float3(0.);
+
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		cm += x[i] * m0[i];
+	}
+	cm /= wsum;
+	//printf("%f %f %f", cm.x, cm.y,cm.z); getchar();
+	//A    (mat)
+	matrix3x3 mat;
+	mat.x00 = mat.x01 = mat.x02 = mat.x10 = mat.x11 = mat.x12 = mat.x20 = mat.x21 = mat.x22 = 0.;
+
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		float3 q = x0[i] - restCM;
+		float3 p = x[i] - cm;
+		
+		p *= m0[i];  //	m0[i] == w;
+	
+		mat.x00 += p.x*q.x; mat.x01 += p.x*q.y; mat.x02 += p.x*q.z;
+		mat.x10 += p.y*q.x; mat.x11 += p.y*q.y; mat.x12 += p.y*q.z;
+		mat.x20 += p.z*q.x; mat.x21 += p.z*q.y; mat.x22 += p.z*q.z;
+	}
+
+	matrix3x3 Apq = mat;
+	matrix3x3 Aqq = invRestMat;
+
+
+	mat = mat3Multmat3(mat, invRestMat);
+
+	matrix3x3 R, U, D;
+	R = mat;
+
+	R = polarDecomposition(mat, R, U, D);
+	
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		float3 goal = cm + mat3Multfloat3( R, (x0[i] - restCM));
+		corr[i] = (goal - x[i])* 0; //stiffness;
+			
+	}
+
+	matrix3x3 rot = R;
+	
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		// Important: Divide position correction by the number of clusters 
+		// which contain the vertex. 
+		if (m0[i]!=0.)
+		x[i] += 1./1 * corr[i];	
+		newparvel[i] = (x[i] - x0[i]) / hparam.dt;
+		
+	}
+	
+	cudaMemcpy(solidParPos, x, sizeof(float3)*parNumNow, cudaMemcpyHostToDevice);
+	cudaMemcpy(solidParVelFLIP, newparvel, sizeof(float3)*parNumNow, cudaMemcpyHostToDevice);
+	set_softparticle_position << <pblocknum, threadnum >> >(solidParPos, mParPos, solidParVelFLIP, mParVel, parflag);
+	
+	
+}
+
+//parNumNow个粒子的float类型的数据的归约求和
+float cspray::accumulate_GPU_f(float *data)
+{
+	int maxblockNum = max(1, (int)ceil(((float)parNumMax) / threadnum));
+	static float *ssum = NULL;
+	if (!ssum)
+		cudaMalloc((void**)&ssum, sizeof(float)*maxblockNum/*GRIDCOUNT(60160,256)*/);
+	static float*hsum = new float[maxblockNum];
+	int sharememsize = threadnum*sizeof(float);
+
+	accumulate_GPU_k_float << <pblocknum, threadnum, sharememsize >> >(parNumNow, ssum, data);
+	cudaThreadSynchronize();
+
+	cudaMemcpy(hsum, ssum, sizeof(float)*pblocknum, cudaMemcpyDeviceToHost);
+
+	float res = 0.;
+	for (int i = 0; i < pblocknum; i++)
+	{
+		res += hsum[i];
+		//	printf( "debug: hsum = %f,%f,%f,%i\n", hsum[i].x,hsum[i].y,hsum[i].z,i);
+	}
+	return res;
+}
 //parNumNow个粒子的float3类型的数据的归约求和
 float3 cspray::accumulate_GPU_f3(float3 *data)
 {
@@ -2798,7 +3018,51 @@ float3 cspray::accumulate_GPU_f3(float3 *data)
 	}
 	return res;
 }
+//parNumNow个粒子的float3类型的数据的归约求和
+float3 cspray::accumulate_GPU_f3(float3 *data1,float3 *data2)
+{
+	int maxblockNum = max(1, (int)ceil(((float)parNumMax) / threadnum));
+	static float3 *ssum = NULL;
+	if (!ssum)
+		cudaMalloc((void**)&ssum, sizeof(float3)*maxblockNum/*GRIDCOUNT(60160,256)*/);
+	static float3*hsum = new float3[maxblockNum];
+	int sharememsize = threadnum*sizeof(float3);
 
+	accumulate_GPU_k << <pblocknum, threadnum, sharememsize >> >(parNumNow, ssum, data1, data2);
+	cudaThreadSynchronize();
+
+	cudaMemcpy(hsum, ssum, sizeof(float3)*pblocknum, cudaMemcpyDeviceToHost);
+
+	float3 res = make_float3(0);
+	for (int i = 0; i < pblocknum; i++)
+	{
+		res += hsum[i];
+		//	printf( "debug: hsum = %f,%f,%f,%i\n", hsum[i].x,hsum[i].y,hsum[i].z,i);
+	}
+	return res;
+}
+float3 cspray::accumulate_GPU_f3(float3 *data1, float *data2)
+{
+	int maxblockNum = max(1, (int)ceil(((float)parNumMax) / threadnum));
+	static float3 *ssum = NULL;
+	if (!ssum)
+		cudaMalloc((void**)&ssum, sizeof(float3)*maxblockNum/*GRIDCOUNT(60160,256)*/);
+	static float3*hsum = new float3[maxblockNum];
+	int sharememsize = threadnum*sizeof(float3);
+
+	accumulate_GPU_k << <pblocknum, threadnum, sharememsize >> >(parNumNow, ssum, data1, data2);
+	cudaThreadSynchronize();
+
+	cudaMemcpy(hsum, ssum, sizeof(float3)*pblocknum, cudaMemcpyDeviceToHost);
+
+	float3 res = make_float3(0);
+	for (int i = 0; i < pblocknum; i++)
+	{
+		res += hsum[i];
+		//	printf( "debug: hsum = %f,%f,%f,%i\n", hsum[i].x,hsum[i].y,hsum[i].z,i);
+	}
+	return res;
+}
 //parNumNow个粒子的float3类型的数据的归约求和
 float3 cspray::accumulate_CPU_f3_test(float3 *data)
 {
@@ -3091,3 +3355,346 @@ void cspray::initHeatAlphaArray()
 	delete[] halpha;
 }
 
+float determinant(matrix3x3 m)
+{
+	return
+		+m.x00 * (m.x11 * m.x22 - m.x21 * m.x12)
+		- m.x10 * (m.x01 * m.x22 - m.x21 * m.x02)
+		+ m.x20 * (m.x01 * m.x12 - m.x11 * m.x02);
+}
+
+matrix3x3 inverse(matrix3x3 m)
+{
+
+	float Determinant = determinant(m);
+
+	matrix3x3 Inverse;
+
+	Inverse.x00 = +(m.x11 * m.x22 - m.x21 * m.x12) / Determinant;
+	Inverse.x10 = -(m.x10 * m.x22 - m.x20 * m.x12) / Determinant;
+	Inverse.x20 = +(m.x10 * m.x21 - m.x20 * m.x11) / Determinant;
+	Inverse.x01 = -(m.x01 * m.x22 - m.x21 * m.x02) / Determinant;
+	Inverse.x11 = +(m.x00 * m.x22 - m.x20 * m.x02) / Determinant;
+	Inverse.x21 = -(m.x00 * m.x21 - m.x20 * m.x01) / Determinant;
+	Inverse.x02 = +(m.x01 * m.x12 - m.x11 * m.x02) / Determinant;
+	Inverse.x12 = -(m.x00 * m.x12 - m.x10 * m.x02) / Determinant;
+	Inverse.x22 = +(m.x00 * m.x11 - m.x10 * m.x01) / Determinant;
+
+	//Inverse /= Determinant;
+
+	return Inverse;
+}
+
+matrix3x3 mat3Multmat3(matrix3x3 a, matrix3x3 b)
+{
+	matrix3x3 result;											//a00 a01 a02        b00 b01 b02
+	result.x00 = a.x00*b.x00 + a.x01*b.x10 + a.x02 * b.x20;		//a10 a11 a12        b10 b11 b12
+	result.x01 = a.x00*b.x01 + a.x01*b.x11 + a.x02 * b.x21;		//a20 a21 a22		 b20 b21 b22
+	result.x02 = a.x00*b.x02 + a.x01*b.x12 + a.x02 * b.x22;
+
+	result.x10 = a.x10*b.x00 + a.x11*b.x10 + a.x12 * b.x20;
+	result.x11 = a.x10*b.x01 + a.x11*b.x11 + a.x12 * b.x21;
+	result.x12 = a.x10*b.x02 + a.x11*b.x12 + a.x12 * b.x22;
+
+	result.x20 = a.x20*b.x00 + a.x21*b.x10 + a.x22 * b.x20;
+	result.x21 = a.x20*b.x01 + a.x21*b.x11 + a.x22 * b.x21;
+	result.x22 = a.x20*b.x02 + a.x21*b.x12 + a.x22 * b.x22;
+
+	return result;
+}
+float3 mat3Multfloat3(matrix3x3 a, float3 b)
+{
+	float3 result;											//a00 a01 a02        b00 
+	result.x = a.x00*b.x + a.x01*b.y + a.x02 * b.z;		//a10 a11 a12        b10 
+	result.y = a.x10*b.x + a.x11*b.y + a.x12 * b.z;		//a20 a21 a22		 b20 
+	result.z = a.x20*b.x + a.x21*b.y + a.x22 * b.z;
+
+
+	return result;
+}
+
+void cspray::reserve_X0()
+{
+	
+	cudaMemcpy(solidParPos, mParPos, sizeof(float3)*parNumNow, cudaMemcpyDeviceToDevice);
+	cudaMemcpy(solidParVelFLIP, mParVel, sizeof(float3)*parNumNow, cudaMemcpyDeviceToDevice);
+	//cudaMemcpy(softParMass, parmass, sizeof(float)*parNumNow, cudaMemcpyDeviceToDevice);
+
+}
+matrix3x3 transpose(matrix3x3 m)
+{
+	matrix3x3 result;
+	result.x00 = m.x00;
+	result.x01 = m.x10;
+	result.x02 = m.x20;
+
+	result.x10 = m.x01;
+	result.x11= m.x11;
+	result.x12 = m.x21;
+
+	result.x20 = m.x02;
+	result.x21 = m.x12;
+	result.x22 = m.x22;
+	return result;
+}
+
+
+matrix3x3 polarDecomposition(matrix3x3 A, matrix3x3 R, matrix3x3 U, matrix3x3 D)
+{
+	// A = SR, where S is symmetric and R is orthonormal
+	// -> S = (A A^T)^(1/2)
+
+	// A = U D U^T R
+
+	matrix3x3 AAT;
+	AAT.x00 = A.x00*A.x00 + A.x01*A.x01 + A.x02*A.x02;
+	AAT.x11 = A.x10*A.x10 + A.x11*A.x11 + A.x12*A.x12;
+	AAT.x22 = A.x20*A.x20 + A.x21*A.x21 + A.x22*A.x22;
+
+	AAT.x01 = A.x00*A.x10 + A.x01*A.x11 + A.x02*A.x12;
+	AAT.x02 = A.x00*A.x20 + A.x01*A.x21 + A.x02*A.x22;
+	AAT.x12 = A.x10*A.x20 + A.x11*A.x21 + A.x12*A.x22;
+
+	AAT.x10 = AAT.x01;
+	AAT.x20 = AAT.x02;
+	AAT.x21 = AAT.x12;
+
+	R.x00 = R.x01 = R.x02 = R.x10 = R.x11 = R.x12 = R.x20 = R.x21 = R.x22 = 0.;
+	R.x00 = R.x11 = R.x22 = 1.;
+
+	float3 eigenVals;
+	eigenDecomposition(AAT, U, eigenVals);
+
+	float d0 = sqrt(eigenVals.x);
+	float d1 = sqrt(eigenVals.y);
+	float d2 = sqrt(eigenVals.z);
+	D.x00 = D.x01 = D.x02 = D.x10 = D.x11 = D.x12 = D.x20 = D.x21 = D.x22 = 0.;
+	D.x00 = d0;
+	D.x11 = d1;
+	D.x22 = d2;
+
+	const float eps = 1e-15;
+
+	float l0 = eigenVals.x; if (l0 <= eps) l0 = 0.0; else l0 = 1.0 / d0;
+	float l1 = eigenVals.y; if (l1 <= eps) l1 = 0.0; else l1 = 1.0 / d1;
+	float l2 = eigenVals.z; if (l2 <= eps) l2 = 0.0; else l2 = 1.0 / d2;
+
+	matrix3x3 S1;
+	S1.x00 = l0*U.x00*U.x00 + l1*U.x01*U.x01 + l2*U.x02*U.x02;
+	S1.x11 = l0*U.x10*U.x10 + l1*U.x11*U.x11 + l2*U.x12*U.x12;
+	S1.x22 = l0*U.x20*U.x20 + l1*U.x21*U.x21 + l2*U.x22*U.x22;
+
+	S1.x01 = l0*U.x00*U.x10 + l1*U.x01*U.x11 + l2*U.x02*U.x12;
+	S1.x02 = l0*U.x00*U.x20 + l1*U.x01*U.x21 + l2*U.x02*U.x22;
+	S1.x12 = l0*U.x10*U.x20 + l1*U.x11*U.x21 + l2*U.x12*U.x22;
+
+	S1.x10 = S1.x01;
+	S1.x20 = S1.x02;
+	S1.x21 = S1.x12;
+
+
+	R = mat3Multmat3(S1, A);
+
+	// stabilize
+	float3 c0, c1, c2;
+	c0 = matCol(R,0);
+	c1 = matCol(R,1);
+	c2 = matCol(R,2);
+
+	if (dot(c0,c0) < eps)
+		c0 = cross(c1,c2);
+	else if (dot(c1,c1) < eps)
+		c1 = cross(c2,c0);
+	else
+		c2 = cross(c0,c1);
+	matCol(R,0) = c0;
+	matCol(R,1) = c1;
+	matCol(R,2) = c2;
+	return R;
+}
+
+
+matrix3x3 polarDecompositionStable(matrix3x3 M, float eps)
+{
+	matrix3x3 Mt = transpose(M);
+
+	float Mone = oneNorm(M);
+	float Minf = infNorm(M);
+	float Eone;
+	matrix3x3 invS, R;
+	matrix3x3 MadjTt, Et;
+	R.x00 = R.x01 = R.x02 = R.x10 = R.x11 = R.x12 = R.x20 = R.x21 = R.x22 = 0.;
+	// 	invS.x00 = invS.x01 = invS.x02 = invS.x10 = invS.x11 = invS.x12 = invS.x20 = invS.x21 = invS.x22 = 0.;
+	// 
+	// 	matrix3x3 S = mat3Multmat3(Mt, mat);		//Apq~T *Apq
+	// 
+	// 	matrix3x3 tmpmat;	tmpmat = mat;	printf(" %f %f %f\n%f %f %f\n%f %f %f ", tmpmat.x00, tmpmat.x01, tmpmat.x02, tmpmat.x10, tmpmat.x11, tmpmat.x12, tmpmat.x20, tmpmat.x21, tmpmat.x22); getchar();
+	// 
+	// 	cross(matRow(Mt,1),matRow(Mt,2));
+	// 
+	// 	invS = inverse(S);
+	// 
+	// 	R = mat3Multmat3(mat, invS);
+	// 	return R;
+
+	do
+	{
+		
+		make_float3(MadjTt.x00, MadjTt.x01, MadjTt.x02) = cross(matRow(Mt, 1), matRow(Mt, 2));
+		make_float3(MadjTt.x10, MadjTt.x11, MadjTt.x12) = cross(matRow(Mt, 2), matRow(Mt, 0));
+		make_float3(MadjTt.x20, MadjTt.x21, MadjTt.x22) = cross(matRow(Mt, 0), matRow(Mt, 1));
+
+		float det = Mt.x00* MadjTt.x00 + Mt.x01*MadjTt.x01 + Mt.x02*MadjTt.x02;
+		
+		if (fabs(det) < 1.0e-12)
+		{
+			float3 len;
+			unsigned int index = 0xffffffff;
+			for (unsigned int i = 0; i < 3; i++)
+			{
+				if (i == 0)
+				{
+					len.x = dot(matRow(MadjTt, i), matRow(MadjTt, i));
+					if (len.x > 1.0e-12)
+					{
+						// index of valid cross product
+						// => is also the index of the vector in Mt that must be exchanged
+						index = i;
+						break;
+					}
+				}
+				if (i == 1)
+				{
+					len.y = dot(matRow(MadjTt, i), matRow(MadjTt, i));
+					if (len.y > 1.0e-12)
+					{
+						// index of valid cross product
+						// => is also the index of the vector in Mt that must be exchanged
+						index = i;
+						break;
+					}
+				}
+				if (i == 2)
+				{
+					len.z = dot(matRow(MadjTt, i), matRow(MadjTt, i));
+					if (len.z > 1.0e-12)
+					{
+						// index of valid cross product
+						// => is also the index of the vector in Mt that must be exchanged
+						index = i;
+						break;
+					}
+				}
+				if (index == 0xffffffff)
+				{
+					printf("index = 0xffffffff!ERRPR!"); getchar();
+				}
+				else
+				{
+					matRow(Mt, index) = cross(matRow(Mt, (index + 1) % 3), matRow(Mt, (index + 2) % 3));
+
+					matRow(MadjTt, ((index + 1) % 3)) = cross(matRow(Mt, (index + 2) % 3), matRow(Mt, (index)));
+					matRow(MadjTt, ((index + 2) % 3)) = cross(matRow(Mt, (index)), matRow(Mt, (index + 1) % 3));
+					matrix3x3 M2 = transpose(Mt);
+					Mone = oneNorm(M2);
+					Minf = infNorm(M2);
+					det = Mt.x00 * MadjTt.x00 + Mt.x01 * MadjTt.x01 + Mt.x02 * MadjTt.x02;
+				}
+			}
+		}
+			const float MadjTone = oneNorm(MadjTt);
+			const float MadjTinf = infNorm(MadjTt);
+			
+			const float gamma = sqrt(sqrt((MadjTone*MadjTinf) / (Mone*Minf)) / fabs(det));
+
+			const float g1 = gamma*0.5;
+			const float g2 = 0.5 / (gamma*det);
+
+			Et.x00 = Mt.x00;
+			Mt.x00 = g1 * Mt.x00 + g2 * MadjTt.x00;
+			Et.x00 -= Mt.x00;
+
+			Et.x01 = Mt.x01;
+			Mt.x01 = g1 * Mt.x01 + g2 * MadjTt.x01;
+			Et.x01 -= Mt.x01;
+
+			Et.x02 = Mt.x02;
+			Mt.x02 = g1 * Mt.x02 + g2 * MadjTt.x02;
+			Et.x02 -= Mt.x02;
+
+			Et.x10 = Mt.x10;
+			Mt.x10 = g1 * Mt.x10 + g2 * MadjTt.x10;
+			Et.x10 -= Mt.x10;
+
+
+			Et.x11 = Mt.x11;
+			Mt.x11 = g1 * Mt.x11 + g2 * MadjTt.x11;
+			Et.x11 -= Mt.x11;
+
+			Et.x12 = Mt.x12;
+			Mt.x12 = g1 * Mt.x12 + g2 * MadjTt.x12;
+			Et.x12 -= Mt.x12;
+
+			Et.x20 = Mt.x20;
+			Mt.x20 = g1 * Mt.x20 + g2 * MadjTt.x20;
+			Et.x20 -= Mt.x20;
+
+			Et.x21 = Mt.x21;
+			Mt.x21 = g1 * Mt.x21 + g2 * MadjTt.x21;
+			Et.x21 -= Mt.x21;
+
+			Et.x22 = Mt.x22;
+			Mt.x22 = g1 * Mt.x22 + g2 * MadjTt.x22;
+			Et.x22 -= Mt.x22;
+			
+
+			Eone = oneNorm(Et);
+
+			Mone = oneNorm(Mt);
+			Minf = infNorm(Mt);
+		}while (Eone > Mone * eps);				// Q = Mt^T 
+		R = transpose(Mt);			return R;
+}
+
+float3 matRow(matrix3x3 m, int i)
+{
+	float3 vecrow;
+	if (i == 0)
+	{
+		vecrow.x = m.x00; vecrow.y = m.x01; vecrow.z = m.x02;
+	}
+	else if (i == 1)
+	{
+		vecrow.x = m.x10; vecrow.y = m.x11; vecrow.z = m.x12;
+	}
+	else if (i == 2)
+	{
+		vecrow.x = m.x20; vecrow.y = m.x21; vecrow.z = m.x22;
+	}
+	return vecrow;
+		
+}
+
+float3 matCol(matrix3x3 m, int i)
+{
+	float3 vecrow;
+	if (i == 0)
+	{
+		vecrow.x = m.x00; vecrow.y = m.x10; vecrow.z = m.x20;
+	}
+	else if (i == 1)
+	{
+		vecrow.x = m.x01; vecrow.y = m.x11; vecrow.z = m.x21;
+	}
+	else if (i == 2)
+	{
+		vecrow.x = m.x02; vecrow.y = m.x12; vecrow.z = m.x22;
+	}
+	return vecrow;
+
+}
+
+/*float3 cross(float3 a, float3 b)
+{
+	return make_float3(a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x);
+}*/
