@@ -178,9 +178,51 @@ struct matrix3x3
 	float x00, x01, x02;
 	float x10, x11, x12;
 	float x20, x21, x22;
+};
 
+	inline matrix3x3 operator+(matrix3x3 A, matrix3x3 B)
+	{
+		B.x00 += A.x00; B.x01 += A.x01; B.x02 += A.x02;
+		B.x10 += A.x10; B.x11 += A.x11; B.x12 += A.x12;
+		B.x20 += A.x20; B.x21 += A.x21; B.x22 += A.x22;
+		return B;
+	}
+inline matrix3x3 operator*(matrix3x3 B, float b)
+{
+	matrix3x3 A;
+	B.x00 *= b; B.x01 *= b; B.x02 *= b;
+	B.x10 *= b; B.x11 *= b; B.x12 *= b;
+	B.x20 *= b; B.x21 *= b; B.x22 *= b;
+	return B;
+}
+inline matrix3x3 operator/(matrix3x3 B, float b)
+{
+	matrix3x3 A;
+	B.x00 /= b; B.x01 /= b; B.x02 /= b;
+	B.x10 /= b; B.x11 /= b; B.x12 /= b;
+	B.x20 /= b; B.x21 /= b; B.x22 /= b;
+	
+	return B;
+}
 
+struct  float9
+{
+	float x0, x1, x2, x3, x4, x5, x6, x7, x8;
+	//float x, y, z, x2, y2, z2, xy, yz, zx;
+};
 
+struct matrix9x9
+{
+	float m[81];
+// 	float x00, x01, x02, x03, x04, x05, x06, x07, x08;
+// 	float x10, x11, x12, x13, x14, x15, x16, x17, x18;
+// 	float x20, x21, x22, x23, x24, x25, x26, x27, x28;
+// 	float x30, x31, x32, x33, x34, x35, x36, x37, x38;
+// 	float x40, x41, x42, x43, x44, x45, x46, x47, x48;
+// 	float x50, x51, x52, x53, x54, x55, x56, x57, x58;
+// 	float x60, x61, x62, x63, x64, x65, x66, x67, x68;
+// 	float x70, x71, x72, x73, x74, x75, x76, x77, x78;
+// 	float x80, x81, x82, x83, x84, x85, x86, x87, x88;
 };
 
 float determinant(matrix3x3 m);

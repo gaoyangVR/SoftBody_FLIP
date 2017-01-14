@@ -77,6 +77,7 @@ void cspray::render()
 	if (bCouplingSphere)
 		rendersphere();
 
+
 	if (simmode == SIMULATION_WATER || simmode == SIMULATION_SOLIDCOUPLING || simmode == SIMULATION_BUBBLE || simmode == SIMULATION_HEATONLY)
 	{
 		glEnable(GL_PROGRAM_POINT_SIZE);

@@ -1639,7 +1639,7 @@ __global__ void genWaterDensfield_liquidAndGas(farray outdens, float3 *pos, char
 		float h = dparam.cellsize.x / (NXMC / NX);
 		//todo: this is not quite right, r should be 0.5*samplespace, i.e. 0.25f/gn.
 		//float r = 2.5f*sqrt(3.)*1.01*0.5*h;		//mantaFlow flip03_gen 
-		float r = 0.36*h;
+		float r = 0.55*h;
 		//get position
 		int i, j, k;
 		getijk(i, j, k, idx, NXMC + 1, NYMC + 1, NZMC + 1);
@@ -1778,9 +1778,8 @@ __global__ void markSolid_sphere(float3 spherepos, float sphereradius, charray m
 	{
 		int i, j, k;
 		getijk(i, j, k, idx);
-		float3 gpos = (make_float3(i, j, k) + make_float3(0.5f)) * dparam.cellsize.x;
-		if (length(gpos - spherepos)<sphereradius)
-			mark[idx] = TYPEBOUNDARY;
+		if ((i>NX/2-2) &&i<2.5*NX/3 && j>3.5*NY/9 && j< 6*NY/9 && k<NZ/5)
+		mark[idx] = TYPEBOUNDARY;
 	}
 }
 
@@ -5554,7 +5553,7 @@ __global__ void solidCollisionWithBound(float3 *ppos, float3 *pvel, char *pflag,
 		float3 tmax = dparam.gmax - (dparam.cellsize + make_float3(0.3f*dparam.samplespace));
 		float3 ipos = ppos[idx];
 		float3 ivel = pvel[idx];
-		SolidbounceParam = 0.0001;	//刚度系数越大 这个值要越小，因为这个值起到的作用和刚性系数类似
+			
 		//float eps=1e-6;
 		// 反向的速度与“穿透深度，系数，粒子个数”相关。
 		//（与粒子个数相关主要是因为这个速度是起到“惩罚力”的作用，而粒子个数起到“质量”的作用，在粒子的速度向刚体转换的时候，相当于一个“平均(除质量)”的过程）

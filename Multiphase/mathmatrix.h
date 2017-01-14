@@ -15,4 +15,7 @@ void jacobiRotate(matrix3x3 &A, matrix3x3 &R, int p, int q);
 
 float Apq(matrix3x3 A,int p, int q);
 void setApq(matrix3x3 &A, int p, int q, float tmp);
+
+float vec9(int a, int b);
+
 #endif // ! MATHMATRIX_H

@@ -22,10 +22,13 @@ charray::charray()
 
 void cspray::initparam()
 {
+
+
 	//这里写经常需要改动的控制变量
 	mscene = SCENE_MELTING;
-	readdata_solid();	//需要放在initparam之前，读取到固体点的个数
 
+	stiffness = 1.0;  //   gy stiffness!
+	SolidbounceParam = 01.50f;	//固体碰到边界时反弹的参数 //这个值起到的作用和刚性系数类似
 	mpause = false;
 	boutputpovray = false;					//输出MC网格及表示spray的df3文件
 	boutputobj = true;
@@ -42,14 +45,14 @@ void cspray::initparam()
 	m_bSolid = false;
 	m_bMelt = false;
 	m_bFreeze = false;
-	m_bFixSolid = false;
+	m_bFixSolid = TRUE;
 	m_bGenGas = true;
 	m_bHeatTrans = true;
 	m_bAddHeatBottom = true;
 	m_bExtendHeatToBoundary = false;
 	m_bCorrectPosition = true;
 	mRecordImage = false;
-	SolidbounceParam = 04.5f;	//固体碰到边界时反弹的参数
+	
 	SolidBuoyanceParam = 0;	//0.05f; 浮力参数，但效果不好，考虑要不要计算流体的高度。
 	defaultSolidT = 263.15f, defaultLiquidT = 293.15f, LiquidHeatTh = 10;
 	posrandparam = 0.1f, velrandparam = 0.0f;
@@ -61,8 +64,8 @@ void cspray::initparam()
 	temperatureMax_render = 373, temperatureMin_render = 273.0f;
 	m_bSmoothMC = true;
 	bRunMCSolid = true;
-	m_DistanceFuncMC = 0;		//1表示使用2005年sand那篇论文的方法，0表示用高阳写的函数
-	stiffness = 0.1;  //   gy stiffness!
+	m_DistanceFuncMC = 1;		//1表示使用2005年sand那篇论文的方法，0表示用高阳写的函数
+	
 	frameMax = 1500;
 	m_bLiquidAndGas = false;
 	m_bGas = true;				//false GY new； true YLP
@@ -96,7 +99,7 @@ void cspray::initparam()
 		pourNum = 0;
 		sprintf(outputdir, "output\\povraydambreak\\");
 		simmode = SIMULATION_SOLIDCOUPLING;
-		solidInitPos = make_float3(0.25f, 0.25f, 0.2f);				//固体初始位置
+		solidInitPos = make_float3(0.1f, 0.1f, 0.6f);				//固体初始位置
 		m_bSolid = true;
 	}
 	else if (mscene == SCENE_FLUIDSPHERE)
@@ -216,17 +219,17 @@ void cspray::initparam()
 	else if (mscene == SCENE_MELTING)
 	{
 		bCouplingSphere = false;
+		m_bFixSolid = false;
 		m_bMelt = false;
 		m_bSolid = true;
 		m_bAddHeatBottom = false;
-		if (NX != 64 || NY != 64 || NZ != 64)
+		if (NX != 96 || NY != 64 || NZ != 96)
 		{
 			printf("reset NX,NY,NZ!!!\n");
 			exit(-1000);
 		}
 		splitnum = 1;
-		//initfluidparticle = 350000;
-		initfluidparticle = 0;
+		initfluidparticle =200000;
 		parNumNow = initfluidparticle + nInitSolPoint;
 		parNumMax = parNumNow*splitnum;	//GY 流体粒子+固体粒子 //每个流体粒子都转为spray particle
 		pourNum = 0;
@@ -235,17 +238,18 @@ void cspray::initparam()
 		if (boutputobj)
 		sprintf(outputdir, "outputobj\\objmelting\\");
 		simmode = SIMULATION_BUBBLE;
-		solidInitPos = make_float3(0.5f, 0.5f, 0.15f);				//固体位置
+		solidInitPos = make_float3(01.f, 0.35f, -0.22f);				//固体位置
 		defaulttemperature = 293.15f;		//空气的温度定为20*C.
 		heatalphafluid = 0.020000f;
 		heatalphaair = 0.00008f;
+		
 	}
 	else if (mscene == SCENE_MELTINGPOUR)
 	{
 		bCouplingSphere = false;
-		m_bMelt = true;
+		m_bMelt = false;
 		m_bSolid = true;
-		m_bFixSolid = true;
+		m_bFixSolid = false;
 		m_bFreeze = false;
 		m_bGenGas = false;
 		m_bAddHeatBottom = false;
@@ -261,20 +265,21 @@ void cspray::initparam()
 		parNumNow = initfluidparticle + nInitSolPoint;
 		parNumMax = 100000 + parNumNow*splitnum;	//pouring + init
 		pourNum = 0;
-		pourRadius = 0.035f;
-		pourpos = make_float3(0.6f, 0.45f, 0.75f);
-		pourvel = make_float3(0.0f, 0.0f, -0.50f);
+		pourRadius = 0.045f;
+		//pourRadius = 0.0f;
+		pourpos = make_float3(0.72f, 0.45f, 0.75f);
+		pourvel = make_float3(-.5f, 0.0f, -02.50f);
 		CompPouringParam_Freezing();	//水龙头
 		if (boutputpovray)
 			sprintf(outputdir, "output\\povraymeltingpour\\");
 		if (boutputobj)
 			sprintf(outputdir, "outputobj\\objmeltingpour\\");
 		simmode = SIMULATION_BUBBLE;
-		solidInitPos = make_float3(0.55f, 0.45f, -0.33f);				//固体位置
+		solidInitPos = make_float3(0.55f, 0.45f, -0.10f);				//固体位置
 		defaulttemperature = 273.15f;		//空气的温度
 		meltingpoint = 265.15f;
 		defaultSolidT = 263.15f, defaultLiquidT = 293.15f;
-		heatalphafluid = 0.01f, heatalphaair = 05.15f;		//传热速度
+		heatalphafluid = 0.01f, heatalphaair = 0.15f;		//传热速度
 		bounceVelParam = 1.3f, bouncePosParam = 1.0f;
 		temperatureMax_render = 283, temperatureMin_render = 263;
 		alphaTempTrans = 0.95f;
@@ -369,18 +374,17 @@ void cspray::initparam()
 		m_bHeatTrans = false;
 		m_bAddHeatBottom = false;
 		bRunMCSolid = false;
-		if (NX != 96 || NY != 64 || NZ != 96)
+		if (NX != 96 || NY != 96 || NZ != 96)
 		{
 			printf("reset NX,NY,NZ!!!\n");
 			exit(-1000);
 		}
 		splitnum = 1;
-		initfluidparticle = 1500000;
+		initfluidparticle = 00000;
 		parNumNow = initfluidparticle + nInitSolPoint;
 		parNumMax = 200000 + parNumNow*splitnum;	//pouring gas particle.
 		pourNum = 0;
 		pourRadius = 0.060f;	
-		pourpos = make_float3(0.25f, 0.25f, 0.05f);
 		pourpos = make_float3(0.25f, 0.25f, 0.05f);
 		pourvel = make_float3(0.0f, 0.0f, 1.5f);
 		CompPouringParam_Ineraction();
@@ -389,7 +393,7 @@ void cspray::initparam()
 		if (boutputobj)
 			sprintf(outputdir, "outputobj\\objinteraction_highres\\");
 		simmode = SIMULATION_BUBBLE;
-		solidInitPos = make_float3(0.750f, 0.58f, 0.8f);		//固体位置
+		solidInitPos = make_float3(0.30f, 0.25f, 0.2f);		//固体位置
 		defaulttemperature = 293.15f;		//空气的温度定为20*C.
 		heatalphafluid = 0.0008f, heatalphaair = 0.0008f;
 		bounceVelParam = 1.3f, bouncePosParam = 1.0f;
@@ -628,7 +632,7 @@ void cspray::initparam()
 }
 
 void cspray::init()
-{
+{	readdata_solid();	//需要放在initparam之前，读取到固体点的个数
 	initparam();
 	initmem_bubble();
 	printf("initmem complete.\n");
@@ -650,7 +654,7 @@ void cspray::init()
 	if (mscene == SCENE_ALL)
 		mmesh.LoadWithNor("objmodels/ss.obj");
 	initparticle_solidCoupling();
-
+	
 	
 	printf("initparticle complete.\n");
 
@@ -984,7 +988,7 @@ void cspray::bubblesim()////////////////////////////mainbody
 	{
 		//mpause=true;
 		printf("Before MC: "), PrintMemInfo();
-
+		
 		CTimer time;
 		CTimer time2;
 		time2.startTimer();
@@ -995,8 +999,6 @@ void cspray::bubblesim()////////////////////////////mainbody
 
 		if (m_btimer)
 			printf("\n------------Frame %d:-------------\n", mframe);
-
-		
 
 		if ((mscene == SCENE_INTERACTION || mscene == SCENE_INTERACTION_HIGHRES) && mframe >= m_beginFrame)
 			pouringgas();
@@ -1419,7 +1421,42 @@ public:
 private:
 	float data[3][3];
 };
+void cspray::CompPouringParam_Break()
+{
+	//if (mframe==0)
+	{
+		//
+	
+		float3 *hpourpos = new float3[initfluidparticle];
+		float3 *hpourvel = new float3[initfluidparticle];
+	
+		int cnt = 0;
+		float3 ipos; int i = 0;
+	
+		for (float z = hparam.cellsize.x + hparam.samplespace; z < 0.8f * NZ*hparam.cellsize.x && i < initfluidparticle; z += hparam.samplespace)
+		{
+			for (float y = hparam.cellsize.x + hparam.samplespace; y < hparam.cellsize.x*(NY - 1) - 0.5f*hparam.samplespace && i < initfluidparticle; y += hparam.samplespace)
+			for (float x = hparam.cellsize.x + hparam.samplespace; x < hparam.cellsize.x*(NX - 1)*0.5 - hparam.samplespace && i < initfluidparticle; x += hparam.samplespace)
+			{
+				hpourpos[i] = make_float3(x, y, z);
+				hpourvel[i] = make_float3(0, 0, 0);
+				
+				++i;
+			}
+		}
+			printf("pouring num=%d\n", i);
 
+			cudaMalloc((void**)&dpourpos, sizeof(float3)*initfluidparticle);
+			cudaMalloc((void**)&dpourvel, sizeof(float3)*initfluidparticle);
+		
+			cudaMemcpy(dpourpos, hpourpos, sizeof(float3)*initfluidparticle, cudaMemcpyHostToDevice);
+			cudaMemcpy(dpourvel, hpourvel, sizeof(float3)*initfluidparticle, cudaMemcpyHostToDevice);
+			
+		
+		delete[] hpourpos;
+		delete[] hpourvel; 
+	}
+}
 void cspray::CompPouringParam_Freezing()
 {
 	//

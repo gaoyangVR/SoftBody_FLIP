@@ -7,11 +7,11 @@
 
 //NX,NY,NZ用来控制仿真空间在三个方向上分别有几个cell
 //const int NX=256,NY=4,NZ=256;
-//const int NX=48,NY=48,NZ=48;  
-//const int NX=128,NY=128,NZ=128;	//meltingpour / 
+//const int NX=96,NY=96,NZ=96;  
+//const int NX=128,NY=128,NZ=128;	//melting / 
 //const int NX = 128, NY = 128, NZ = 96;  //boiling high resolution
-//const int NX=96,NY=128,NZ=128;
-const int NX=64	,NY=64,NZ=64;//freezing
+const int NX=96,NY=64,NZ=96;
+// const int NX = 64, NY = 64, NZ = 64;//freezing meltingpour
 //const int NX=48,NY=32,NZ=64;  //interaction
 //const int NX=64,NY=48,NZ=64; //boiling / melting
 
@@ -136,6 +136,7 @@ public:
 	int solidvertexnum, solidindicesnum;
 	uint *solidindices;
 	bool bRunMCSolid;
+	bool m_bQDeformation;
 
 	//help function.
 	void swapParticlePointers();
@@ -217,7 +218,7 @@ public:
 	void ComputeTriangleHashSize(myMesh &mesh);
 	void hashTriangle_radix_q();
 	void sortTriangles_q(uint numParticles);
-	void reorderTriangle_radix_q();
+	void reorderTriangle_radix_q();///
 	void updateNormal_q();
 	void Coupling_f2s_q(int scene);
 
@@ -257,6 +258,7 @@ public:
 	void pouring();
 	void pouringgas();
 	void CompPouringParam_Freezing();
+	void CompPouringParam_Break();
 	void CompPouringParam_Ineraction();
 	void CompPouringParam_Ineraction2();
 

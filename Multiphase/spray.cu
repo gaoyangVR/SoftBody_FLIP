@@ -31,6 +31,10 @@ inline int getidx(int i, int j, int k)
 	return (i*NZ*NY + j*NZ + k);
 }
 
+inline int getidx9(int i, int j)
+{
+	return (i*9 + j);
+}
 
 void cspray::initmem_bubble()
 {
@@ -432,7 +436,7 @@ void cspray::initparticle_solidCoupling()///////////////////initparticle
   		// 			for( float x = hparam.cellsize.x+hparam.samplespace; x<hparam.cellsize.x*(0.7*NX-1)-0.5f*hparam.samplespace && i<initfluidparticle; x+=hparam.samplespace )
   		// 			{
   		for (float y = hparam.cellsize.x + hparam.samplespace; y<hparam.cellsize.x*(NY - 1) - 0.5f*hparam.samplespace && i<initfluidparticle; y += hparam.samplespace)
-  		for (float x = hparam.cellsize.x + hparam.samplespace; x<hparam.cellsize.x*(NX - 1) - 0.5f*hparam.samplespace && i<initfluidparticle; x += hparam.samplespace)
+  		for (float x = hparam.cellsize.x + hparam.samplespace; x<hparam.cellsize.x*(NX - 1)*0.2 - 0.5f*hparam.samplespace && i<initfluidparticle; x += hparam.samplespace)
 		{
 		
 				hparpos[i] = make_float3(x, y, z);
@@ -446,10 +450,10 @@ void cspray::initparticle_solidCoupling()///////////////////initparticle
  		if (ParNumPerLevel == 0) ParNumPerLevel = i;
  	}
 
-	float scale = 50;
+	float scale = 60;
 	if (mscene == SCENE_FREEZING || mscene == SCENE_MELTINGPOUR) scale = 80;
 	if (mscene == SCENE_INTERACTION) scale = 60;
-	if (mscene == SCENE_MELTANDBOIL_HIGHRES || mscene == SCENE_INTERACTION_HIGHRES) scale = 100;
+	if (mscene == SCENE_MELTANDBOIL_HIGHRES || mscene == SCENE_INTERACTION_HIGHRES) scale = 60;
 	if (mscene == SCENE_ALL) scale = 80;
 
 
@@ -535,6 +539,11 @@ void cspray::markgrid_bubble()
 	markfluid_dense << <pblocknum, threadnum >> >(mmark, parmass, parflag, parNumNow, gridstart, gridend, fluidParCntPerGridThres);
 	cudaThreadSynchronize();
 	getLastCudaError("Kernel execution failed");
+	
+//	markSolid_sphere << <gsblocknum, threadnum >> >(solidInitPos, sphereradius, mmark);
+//	cudaThreadSynchronize();
+//	getLastCudaError("Kernel execution failed");
+	
 	markBoundaryCell << <gsblocknum, threadnum >> >(mmark);
 }
 
@@ -1425,7 +1434,7 @@ void cspray::initscene_bubble()
 	for (float z = hparam.cellsize.x + hparam.samplespace; z<0.8f * NZ*hparam.cellsize.x && i<initfluidparticle; z += hparam.samplespace)
 	{
 		for (float y = hparam.cellsize.x + hparam.samplespace; y<hparam.cellsize.x*(NY - 1) - 0.5f*hparam.samplespace && i<initfluidparticle; y += hparam.samplespace)
-		for (float x = hparam.cellsize.x + hparam.samplespace; x<hparam.cellsize.x*(NX - 1) - 0.5f*hparam.samplespace && i<initfluidparticle; x += hparam.samplespace)
+		for (float x = hparam.cellsize.x + hparam.samplespace; x<hparam.cellsize.x*(NX - 1)*0.5 - hparam.samplespace && i<initfluidparticle; x += hparam.samplespace)
 		{
 			hparpos[i] = make_float3(x, y, z);
 			hparvel[i] = make_float3(0.0f);
@@ -2780,7 +2789,7 @@ void cspray::solidmotion()			///////////////////////////////
 		cudaThreadSynchronize();
 
 		int blocknum = (int)ceil(((float)solidvertexnum) / threadnum);
-		if ((mscene == SCENE_INTERACTION || mscene == SCENE_INTERACTION_HIGHRES || mscene == SCENE_MELTANDBOIL || mscene == SCENE_MELTANDBOIL_HIGHRES /*|| mscene==SCENE_ALL*/) && mframe > 0 && !bRunMCSolid)
+		if ((mscene == SCENE_INTERACTION || mscene == SCENE_INTERACTION_HIGHRES || mscene == SCENE_MELTANDBOIL || mscene == SCENE_MELTANDBOIL_HIGHRES || mscene==SCENE_MELTING) && mframe > 0 && !bRunMCSolid)
 			computeSolidVertex_k << <blocknum, threadnum >> >(solidvertex, solidvertexnum, rg, rg0, rm);
 	}
 }
@@ -2797,8 +2806,9 @@ void cspray::soft_solidmotion()			///////////////////////////////
 	float3* newparvel = new float3[parNumNow];
 	char* hparflag = new char[parNumNow];	//1. prepare
 	
-
-
+	float9 q_bar;
+	matrix9x9 Aqq_bar;
+	matrix9x9 Apq_bar;
 
 	// 	0. 处理刚体碰到墙的情况
   	solidCollisionWithBound << <pblocknum, threadnum >> > (solidParPos, solidParVelFLIP, parflag, parNumNow, SolidbounceParam, nRealSolpoint);
@@ -2816,36 +2826,12 @@ void cspray::soft_solidmotion()			///////////////////////////////
 	cudaMemcpy(newparvel, solidParVelFLIP, sizeof(float3)*parNumNow, cudaMemcpyDeviceToHost);
 	float3 restCM = make_float3(0.);
 
-	/*		float3* x0 = new float3[8];
-		float3* x = new float3[8];
-	x0[0].x = 0.;  x0[0].y = 0.; x0[0].z = 0.0;
-	x0[1].x = 0.3; x0[1].y = 0.; x0[1].z = 0.0;
-	x0[2].x = 0.3; x0[2].y = 0.3; x0[2].z = 0.0;
-	x0[3].x = 0.; x0[3].y = 0.3; x0[3].z = 0.0;
-
-	x0[4].x = 0.; x0[4].y = 0.; x0[4].z = 0.3;
-	x0[5].x = 0.3; x0[5].y = 0.; x0[5].z = 0.3;
-	x0[6].x = 0.3; x0[6].y = 0.3; x0[6].z = 0.3;
-	x0[7].x = 0.; x0[7].y = 0.3; x0[7].z = 0.3;
-
-	x[0].x = 0.;  x[0].y = 0.; x[0].z = 0.0;
-	x[1].x = 0.4; x[1].y = 0.; x[1].z = 0.0;
-	x[2].x = 0.4; x[2].y = 0.4; x[2].z = 0.0;
-	x[3].x = 0.; x[3].y = 0.4; x[3].z = 0.0;
-
-	x[4].x = 0.; x[4].y = 0.; x[4].z = 0.4;
-	x[5].x = 0.4; x[5].y = 0.; x[5].z = 0.4;
-	x[6].x = 0.4; x[6].y = 0.4; x[6].z = 0.4;
-	x[7].x = 0.; x[7].y = 0.4; x[7].z = 0.4;
-	parNumNow = 8;
-	*/
-	///////////////////////////////////////
 	matrix3x3 invRestMat;
 	float wsum=0.;
  	for (int i = 0; i < parNumNow; i++)
 	if (hparflag[i]==TYPESOLID)
  	{
-		m0[i] = hparam.m0;
+		m0[i] = hparam.m0*5.f;;
 		
  		wsum += m0[i];
 		restCM += m0[i] * x0[i];
@@ -2888,6 +2874,27 @@ void cspray::soft_solidmotion()			///////////////////////////////
 		invRestMat = inverse(A);
 	}
 
+	
+	if (m_bQDeformation)
+	{
+		for (int i = 0; i < parNumNow; i++)
+		if (hparflag[i] == TYPESOLID)
+		{
+// 			const float3 q = x0 - restCM;
+// 			q_bar.x0 = q.x; q_bar.x1 = q.y; q_bar.x2 = q.z;
+// 			q_bar.x3 = q.x*q.x; q_bar.x4 = q.y*q.y; q_bar.x5 = q.z*q.z;
+// 			q_bar.x6 = q.x*q.y; q_bar.x7 = q.y*q.z; q_bar.x8 = q.z*q.x;
+// 			float wi = m0[i];
+// 			for (int a = 0; a < 9;a++)
+// 			for (int b = 0; b < 9; b++)
+			{
+				
+			}
+		
+	
+		}
+	}
+
 	//////////////////////////////////
 	for (int i = 0; i < parNumNow; i++)
 	if (hparflag[i]==TYPESOLID)
@@ -2920,6 +2927,7 @@ void cspray::soft_solidmotion()			///////////////////////////////
 	matrix3x3 mat;
 	mat.x00 = mat.x01 = mat.x02 = mat.x10 = mat.x11 = mat.x12 = mat.x20 = mat.x21 = mat.x22 = 0.;
 
+	
 	for (int i = 0; i < parNumNow; i++)
 	if (hparflag[i]==TYPESOLID)
 	{
@@ -2931,40 +2939,46 @@ void cspray::soft_solidmotion()			///////////////////////////////
 		mat.x00 += p.x*q.x; mat.x01 += p.x*q.y; mat.x02 += p.x*q.z;
 		mat.x10 += p.y*q.x; mat.x11 += p.y*q.y; mat.x12 += p.y*q.z;
 		mat.x20 += p.z*q.x; mat.x21 += p.z*q.y; mat.x22 += p.z*q.z;
-	}
 
-	matrix3x3 Apq = mat;
-	matrix3x3 Aqq = invRestMat;
-
-
-	mat = mat3Multmat3(mat, invRestMat);
-
-	matrix3x3 R, U, D;
-	R = mat;
-
-	R = polarDecomposition(mat, R, U, D);
-	
-	for (int i = 0; i < parNumNow; i++)
-	if (hparflag[i]==TYPESOLID)
-	{
-		float3 goal = cm + mat3Multfloat3( R, (x0[i] - restCM));
-		corr[i] = (goal - x[i])* 0; //stiffness;
-			
-	}
-
-	matrix3x3 rot = R;
-	
-	for (int i = 0; i < parNumNow; i++)
-	if (hparflag[i]==TYPESOLID)
-	{
-		// Important: Divide position correction by the number of clusters 
-		// which contain the vertex. 
-		if (m0[i]!=0.)
-		x[i] += 1./1 * corr[i];	
-		newparvel[i] = (x[i] - x0[i]) / hparam.dt;
 		
 	}
 	
+	
+	
+	matrix3x3 Apq = mat;
+	matrix3x3 Aqq = invRestMat;
+		
+	mat = mat3Multmat3(mat, invRestMat);//AAA	
+
+	matrix3x3 R, U, D;
+	R = polarDecomposition(Apq, R, U, D);	//最基础的shape matching
+	
+	float beta = 0.20;
+	float detA = determinant(mat);
+	detA = pow(detA, 1. / 3);
+	mat = mat / detA;		// ensure  volume conserved
+
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i]==TYPESOLID)
+	{
+		
+		//float3 goal = cm + mat3Multfloat3( R, (x0[i] - restCM));
+		float3 goal = cm + mat3Multfloat3(((mat*beta) + R*(1. - beta)), (x0[i] - restCM));	//linear deformation
+	/*printf("%f %f %f ", goal.x, goal.y, goal.z); getchar();*/
+	
+		corr[i] = (goal - x[i]) * stiffness;// stiffness;
+		if (m0[i]!=0.)
+			x[i] += 1./1 * corr[i];	
+			newparvel[i] = (x[i] - x0[i]) / hparam.dt;
+	}
+	
+	for (int i = 0; i < parNumNow; i++)
+	if (hparflag[i] == TYPESOLID)
+	{
+		
+
+	}
+
 	cudaMemcpy(solidParPos, x, sizeof(float3)*parNumNow, cudaMemcpyHostToDevice);
 	cudaMemcpy(solidParVelFLIP, newparvel, sizeof(float3)*parNumNow, cudaMemcpyHostToDevice);
 	set_softparticle_position << <pblocknum, threadnum >> >(solidParPos, mParPos, solidParVelFLIP, mParVel, parflag);
@@ -3652,8 +3666,12 @@ matrix3x3 polarDecompositionStable(matrix3x3 M, float eps)
 
 			Mone = oneNorm(Mt);
 			Minf = infNorm(Mt);
-		}while (Eone > Mone * eps);				// Q = Mt^T 
-		R = transpose(Mt);			return R;
+		}while (Eone > Mone * eps);
+		
+		// Q = Mt^T 
+		R = transpose(Mt);
+	
+		return R;
 }
 
 float3 matRow(matrix3x3 m, int i)
